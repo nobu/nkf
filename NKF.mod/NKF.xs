@@ -100,6 +100,18 @@ nkf_putchar_grow(unsigned int c)
 #undef SP
 #define SP sp /* perl's CORE/pp.h */
 
+/* NKF state */
+static nkf_state_t nkf_state_object;
+
+static nkf_state_t *
+nkf_perl_state(void)
+{
+    if (!nkf_state_object.std_gc_buf) {
+	nkf_state_init(&nkf_state_object);
+    }
+    return &nkf_state_object;
+}
+
 /* package defenition  */
 
 /* nkf accepts variable length arguments. The last argument is */
@@ -118,10 +130,13 @@ nkf(...)
     char *data;
     STRLEN cplen,rlen;
     int i,argc;
+    nkf_state_t *nkf_state;
     CODE:
 
+    nkf_state = nkf_perl_state();
+
     /* Flags are reset at each call. */
-    reinit();
+    reinit(nkf_state);
 
     argc = items - 1;
 
@@ -130,7 +145,7 @@ nkf(...)
         sv = ST(i);
         cp = SvPV(sv,cplen);
         if(*cp != '-') continue;
-	options(cp);
+	options(nkf_state, (unsigned char *)cp);
     }
 
     /* Get input data pointer from the last variable. */
@@ -152,7 +167,7 @@ nkf(...)
     output_ctr = 0;
 
     /* Convestion */
-    kanji_convert(NULL);
+    kanji_convert(nkf_state, NULL);
     nkf_putchar(0);     /* Null terminator */
 
     RETVAL = result;
@@ -172,7 +187,10 @@ nkf_continue(...)
     PREINIT:
     char *data;
     STRLEN rlen;
+    nkf_state_t *nkf_state;
     CODE:
+
+    nkf_state = nkf_perl_state();
 
     /* Get input data pointer from the last variable. */
     data = SvPV(ST(0),i_len);
@@ -193,7 +211,7 @@ nkf_continue(...)
     output_ctr = 0;
 
     /* Convestion */
-    kanji_convert(NULL);
+    kanji_convert(nkf_state, NULL);
     nkf_putchar(0);     /* Null terminator */
 
     RETVAL = result;
@@ -209,7 +227,10 @@ nkf_continue(...)
 
 SV*
 inputcode(...)
+    PREINIT:
+    nkf_state_t *nkf_state;
     CODE:
+    nkf_state = nkf_perl_state();
     RETVAL = newSV(strlen(input_codename) + 1);
     sv_setpv(RETVAL, input_codename);
     OUTPUT:
