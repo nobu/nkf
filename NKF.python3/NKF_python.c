@@ -94,11 +94,16 @@ static PyObject *
 pynkf_convert(unsigned char* str, Py_ssize_t strlen, char* opts, Py_ssize_t optslen)
 {
   PyObject * res;
+  Py_ssize_t reslen;
+  nkf_state_t nkf_state_object = {0};
+  nkf_state_t *nkf_state = &nkf_state_object;
 
+  nkf_state_init(nkf_state);
   pynkf_ibufsize = strlen + 1;
   pynkf_obufsize = pynkf_ibufsize * 1.5 + 256;
   pynkf_outbuf = (unsigned char *)PyMem_Malloc(pynkf_obufsize);
   if (pynkf_outbuf == NULL){
+    nkf_state_dispose(nkf_state);
     PyErr_NoMemory();
     return NULL;
   }
@@ -112,44 +117,54 @@ pynkf_convert(unsigned char* str, Py_ssize_t strlen, char* opts, Py_ssize_t opts
 
   if (setjmp(env) == 0){
 
-    reinit();
+    reinit(nkf_state);
 
-    options(opts);
+    options(nkf_state, (unsigned char *)opts);
 
-    kanji_convert(NULL);
+    kanji_convert(nkf_state, NULL);
 
   }else{
+    nkf_state_dispose(nkf_state);
     PyMem_Free(pynkf_outbuf);
     PyErr_NoMemory();
     return NULL;
   }
 
   *pynkf_optr = 0;
-  res = PyBytes_FromString(pynkf_outbuf);
+  reslen = pynkf_optr - pynkf_outbuf;
+  if (reslen > 0 && pynkf_outbuf[reslen - 1] == '\0') {
+    reslen--;
+  }
+  res = PyBytes_FromStringAndSize((char *)pynkf_outbuf, reslen);
+  nkf_state_dispose(nkf_state);
   PyMem_Free(pynkf_outbuf);
   return res;
 }
 
 static PyObject *
-pynkf_convert_guess(unsigned char* str, int strlen)
+pynkf_convert_guess(unsigned char* str, Py_ssize_t strlen)
 {
   PyObject * res;
   const char *codename;
+  nkf_state_t nkf_state_object = {0};
+  nkf_state_t *nkf_state = &nkf_state_object;
 
+  nkf_state_init(nkf_state);
   pynkf_ibufsize = strlen + 1;
   pynkf_icount = 0;
   pynkf_inbuf  = str;
   pynkf_iptr = pynkf_inbuf;
 
   pynkf_guess_flag = 1;
-  reinit();
+  reinit(nkf_state);
   guess_f = 1;
 
-  kanji_convert(NULL);
+  kanji_convert(nkf_state, NULL);
 
-  codename = get_guessed_code();
+  codename = get_guessed_code(nkf_state);
 
   res = PyUnicode_FromString(codename);
+  nkf_state_dispose(nkf_state);
   return res;
 }
 
@@ -177,7 +192,7 @@ static
 PyObject *pynkf_guess(PyObject *self, PyObject *args)
 {
   unsigned char *str;
-  int strlen;
+  Py_ssize_t strlen;
   PyObject* res;
 
   if (!PyArg_ParseTuple(args, "s#", &str, &strlen)) {
