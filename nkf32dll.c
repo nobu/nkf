@@ -123,9 +123,19 @@ static int nin = -1;
 static int ninmax = -1;
 static int std_getc_mode = 1;
 
-int 
-std_getc(f)
-FILE *f;
+static nkf_state_t nkf_state_object;
+
+static nkf_state_t *
+nkf_dll_state(void)
+{
+    if (!nkf_state_object.std_gc_buf) {
+        nkf_state_init(&nkf_state_object);
+    }
+    return &nkf_state_object;
+}
+
+static nkf_char
+std_getc(nkf_state_t *nkf_state, FILE *f)
 {
     if (!nkf_buf_empty_p(nkf_state->std_gc_buf)) {
         return nkf_buf_pop(nkf_state->std_gc_buf);
@@ -159,9 +169,8 @@ static int nout = -1;
 static int noutmax = -1;
 static int std_putc_mode = 1;
 
-void 
-std_putc(c)
-int c;
+static void
+std_putc(ARG_UNUSED nkf_state_t *nkf_state, nkf_char c)
 {
     if(c!=EOF)
     {
@@ -179,10 +188,9 @@ int c;
 }
 
 void
-print_guessed_code (filename)
-    char *filename;
+print_guessed_code(nkf_state_t *nkf_state, char *filename)
 {
-    const char *codename = get_guessed_code();
+    const char *codename = get_guessed_code(nkf_state);
     if (filename != NULL) {
         guessbuffA = realloc(guessbuffA,(strlen(filename) + GUESS + 1) * sizeof (char) );
         sprintf(guessbuffA,"%s:%s", filename,codename);
@@ -194,10 +202,9 @@ print_guessed_code (filename)
 
 #ifdef UNICODESUPPORT
 void
-print_guessed_codeW (filename)
-    wchar_t *filename;
+print_guessed_codeW(nkf_state_t *nkf_state, wchar_t *filename)
 {
-    const char *codename = get_guessed_code();
+    const char *codename = get_guessed_code(nkf_state);
     size_t size;
     if (filename != NULL) {
 	size = (wcslen(filename) + GUESS + 1) * sizeof (wchar_t);
@@ -353,7 +360,7 @@ int findspace(const char* str)
 	return find_n;
 }
 // オプションが 空白で区切られている場合に options を複数呼び出す
-void callOptions()
+void callOptions(nkf_state_t *nkf_state)
 {
 	char *work = strdup(optStr0);
 	int len = strlen(optStr0);
@@ -368,7 +375,7 @@ void callOptions()
 		// 文字を探す
 		if (work[i] != '\0') {
 			// options 呼び出し
-			options(&work[i]);
+			options(nkf_state, (unsigned char *)&work[i]);
 
 			// 文字の終端を探す
 			while (work[i] != '\0' && i < len) {
@@ -384,14 +391,15 @@ void callOptions()
 
 void options0(void)
 {
-    reinit();
+    nkf_state_t *nkf_state = nkf_dll_state();
+    reinit(nkf_state);
     if ( optStr0 != NULL ) {
 		// option の中に 空白があった場合 options を分割して呼び出す
 		if (findspace(optStr0) > 0) {
-			callOptions();
+			callOptions(nkf_state);
 		}
 		else {
-			options(optStr0);
+			options(nkf_state, (unsigned char *)optStr0);
 		}
     }
 }
@@ -407,7 +415,7 @@ void CALLBACK NkfConvert(LPSTR outStr, LPCSTR inStr)
     cin = inStr;
     ninmax = -1;
     nin = -1;
-    kanji_convert(NULL);
+    kanji_convert(nkf_dll_state(), NULL);
     *cout = 0;
 }
 
@@ -422,7 +430,7 @@ BOOL WINAPI NkfConvertSafe(LPSTR outStr,DWORD nOutBufferLength /*in Bytes*/,LPDW
     cin = inStr;
     ninmax = nInBufferLength;
     nin = 0;
-    kanji_convert(NULL);
+    kanji_convert(nkf_dll_state(), NULL);
     *lpBytesReturned = nout;
     if ( nout < noutmax ) *cout = 0;
     return TRUE;
@@ -437,37 +445,37 @@ void CALLBACK ToHankaku(LPSTR inStr)
     p = malloc(len);
     if ( p == NULL ) return;
     memcpy(p,inStr,len);
-    options("-ZSs");
+    options(nkf_dll_state(), (unsigned char *)"-ZSs");
     NkfConvert(inStr,p);
     free(p);
 }
 
 BOOL WINAPI ToHankakuSafe(LPSTR outStr,DWORD nOutBufferLength /*in Bytes*/,LPDWORD lpBytesReturned /*in Bytes*/,LPCSTR inStr,DWORD nInBufferLength /*in Bytes*/)
 {
-    options("-ZSs");
+    options(nkf_dll_state(), (unsigned char *)"-ZSs");
     return NkfConvertSafe(outStr,nOutBufferLength,lpBytesReturned,inStr,nInBufferLength);
 }
 
 void CALLBACK ToZenkakuKana(LPSTR outStr, LPCSTR inStr)
 {
-    options("-Ss");
+    options(nkf_dll_state(), (unsigned char *)"-Ss");
     NkfConvert(outStr, inStr);
 }
 
 BOOL WINAPI ToZenkakuKanaSafe(LPSTR outStr,DWORD nOutBufferLength /*in Bytes*/,LPDWORD lpBytesReturned /*in Bytes*/,LPCSTR inStr,DWORD nInBufferLength /*in Bytes*/)
 {
-    options("-Ss");
+    options(nkf_dll_state(), (unsigned char *)"-Ss");
     return NkfConvertSafe(outStr,nOutBufferLength,lpBytesReturned,inStr,nInBufferLength);
 }
 
 void CALLBACK EncodeSubject(LPSTR outStr ,LPCSTR inStr){
-    options("-jM");
+    options(nkf_dll_state(), (unsigned char *)"-jM");
     NkfConvert(outStr, inStr);
 }
 
 BOOL WINAPI EncodeSubjectSafe(LPSTR outStr,DWORD nOutBufferLength /*in Bytes*/,LPDWORD lpBytesReturned /*in Bytes*/,LPCSTR inStr,DWORD nInBufferLength /*in Bytes*/)
 {
-    options("-jM");
+    options(nkf_dll_state(), (unsigned char *)"-jM");
     return NkfConvertSafe(outStr,nOutBufferLength,lpBytesReturned,inStr,nInBufferLength);
 }
 
@@ -481,6 +489,7 @@ void CALLBACK ToMime(LPSTR outStr ,LPCSTR inStr)
 #ifdef GETKANJICODE
 int CALLBACK NkfGetKanjiCode(VOID)
 {
+    nkf_state_t *nkf_state = nkf_dll_state();
     int iCode=0;
     /* if(iconv == s_iconv)iCode=0; */ /* 0:シフトJIS */
     if(iconv == w_iconv)iCode=3; /* UTF-8 */
@@ -524,7 +533,7 @@ void CALLBACK NkfFileConvert1(LPCSTR fName)
                      nout = -1;
                      noutmax = -1;
                      std_putc_mode = 1;
-                     kanji_convert(fin);
+                     kanji_convert(nkf_dll_state(), fin);
                      fclose(fin);
                  }
                  fclose(fout);
@@ -575,7 +584,7 @@ BOOL WINAPI NkfFileConvert1SafeA(LPCSTR fName,DWORD nBufferLength /*in TCHARs*/)
                     nout = -1;
                     noutmax = -1;
                     std_putc_mode = 1;
-                    kanji_convert(fin);
+                    kanji_convert(nkf_dll_state(), fin);
                     fclose(fin);
                     ret = TRUE;
                 }
@@ -628,7 +637,7 @@ BOOL WINAPI NkfFileConvert1SafeW(LPCWSTR fName,DWORD nBufferLength /*in TCHARs*/
                     nout = -1;
                     noutmax = -1;
                     std_putc_mode = 1;
-                    kanji_convert(fin);
+                    kanji_convert(nkf_dll_state(), fin);
                     fclose(fin);
                     ret = TRUE;
                 }
@@ -663,7 +672,7 @@ void CALLBACK NkfFileConvert2(LPCSTR fInName,LPCSTR fOutName)
     nout = -1;
     noutmax = -1;
     std_putc_mode = 1;
-    kanji_convert(fin);
+    kanji_convert(nkf_dll_state(), fin);
     fclose(fin);
     fclose(fout);
 }
@@ -702,7 +711,7 @@ BOOL WINAPI NkfFileConvert2SafeA(LPCSTR fInName,DWORD fInBufferLength /*in TCHAR
             nout = -1;
             noutmax = -1;
             std_putc_mode = 1;
-            kanji_convert(fin);
+            kanji_convert(nkf_dll_state(), fin);
             fclose(fin);
             ret = TRUE;
         }
@@ -745,7 +754,7 @@ BOOL WINAPI NkfFileConvert2SafeW(LPCWSTR fInName,DWORD fInBufferLength /*in TCHA
             nout = -1;
             noutmax = -1;
             std_putc_mode = 1;
-            kanji_convert(fin);
+            kanji_convert(nkf_dll_state(), fin);
             fclose(fin);
             ret = TRUE;
         }
@@ -760,7 +769,7 @@ BOOL WINAPI NkfFileConvert2SafeW(LPCWSTR fInName,DWORD fInBufferLength /*in TCHA
 BOOL WINAPI GetNkfGuessA(LPSTR outStr,DWORD nBufferLength /*in TCHARs*/,LPDWORD lpTCHARsReturned /*in TCHARs*/)
 {
     if ( outStr == NULL || nBufferLength == 0 ) return FALSE;
-    print_guessed_code(NULL);
+    print_guessed_code(nkf_dll_state(), NULL);
     *lpTCHARsReturned = strlen(guessbuffA) + 1;
     return scp(outStr,guessbuffA,nBufferLength);
 }
@@ -769,7 +778,7 @@ BOOL WINAPI GetNkfGuessW(LPWSTR outStr,DWORD nBufferLength /*in TCHARs*/,LPDWORD
 {
 #ifdef UNICODESUPPORT
     if ( outStr == NULL || nBufferLength == 0 ) return FALSE;
-    print_guessed_codeW(NULL);
+    print_guessed_codeW(nkf_dll_state(), NULL);
     *lpTCHARsReturned = wcslen(guessbuffW) + 1;
     return wscp(outStr,guessbuffW,nBufferLength);
 #else /*UNICODESUPPORT*/
